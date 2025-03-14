@@ -22,5 +22,4 @@ func (b *Brick) Draw() {
 	w4.Rect(b.X, b.Y, BrickWidth, BrickHeight)
 }
 
-func (b *Brick) Update() {
-}
+func (b *Brick) Update() {}

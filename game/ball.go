@@ -1,6 +1,9 @@
 package game
 
-import "cart/w4"
+import (
+	"cart/w4"
+	"math"
+)
 
 var ballSprite = [6]byte{
 	0b00110000,
@@ -16,27 +19,49 @@ const (
 )
 
 type Speed struct {
-	X int
-	Y int
+	X     float64
+	Y     float64
+	Value float64
 }
 
 type Ball struct {
-	X     int
-	Y     int
+	X     float64
+	Y     float64
+	iX    int
+	iY    int
 	Speed Speed
 }
 
 func (b *Ball) Draw() {
 	*w4.DRAW_COLORS = 0x42
-	w4.Oval(b.X, b.Y, BallSize, BallSize)
+	w4.Oval(b.iX, b.iY, BallSize, BallSize)
 }
 
 func (b *Ball) Update() {
 	b.X += b.Speed.X
 	b.Y += b.Speed.Y
+	b.iX = int(b.X)
+	b.iY = int(b.Y)
 }
 
-func (b *Ball) CeckCollision(bricks []Brick) {
+func (b *Ball) Initialize() {
+	b.normalizeSpeed()
+}
+
+func (b *Ball) CeckCollision(bricks []Brick, bouncer Bouncer) {
+	bouncerX0, bouncerY0, bouncerX1, _ := bouncer.Border()
+	if b.iY+BallSize > bouncerY0 && b.iX+BallSize > bouncerX0 && b.iX < bouncerX1 {
+		b.BounceUp()
+		ballCenter := b.iX + BallSize/2
+		bouncerCenter := bouncer.X + BouncerWidth/2
+		switch {
+		case ballCenter < bouncerCenter-BouncerWidth/4:
+			b.Speed.X -= .5
+		case ballCenter > bouncerCenter+BouncerWidth/4:
+			b.Speed.X += .5
+		}
+	}
+
 	if b.X <= 0 {
 		b.BounceEW()
 	}
@@ -50,38 +75,64 @@ func (b *Ball) CeckCollision(bricks []Brick) {
 	if b.Y >= TotalHeight-BallSize {
 		b.BounceNS()
 	}
-	bounced := false
+
 	for i, brick := range bricks {
 		if brick.Lives <= 0 {
 			continue
 		}
-		if b.X+BallSize > brick.X && b.X < brick.X+BrickWidth && b.Y+BallSize >= brick.Y && b.Y <= brick.Y+BrickHeight {
+		if b.iX+BallSize > brick.X && b.iX < brick.X+BrickWidth && b.iY+BallSize >= brick.Y && b.iY <= brick.Y+BrickHeight {
+			mask := byte(0b11111100)
+			if brick.X > b.iX {
+				diff := uint(brick.X - b.iX)
+				mask = (mask << diff) >> diff
+			}
+			if brick.X+BrickWidth < b.iX+BallSize {
+				diff := uint(b.iX + BallSize - (brick.X + BrickWidth))
+				mask = (mask >> diff) << diff
+			}
+			bouncedNS := false
+			bouncedEW := false
 			for _y := range BrickHeight {
-				y := brick.Y - ball.Y + _y
+				y := brick.Y - b.iY + _y
 				if y < 0 || y >= BallSize {
 					continue
 				}
-				for _x := range BrickWidth {
-					x := brick.X - ball.X + _x
-					if x < 0 || x >= BallSize {
-						continue
-					}
-					if ballSprite[y]&(1<<uint(x)) != 0 {
-						if !bounced {
-							if x > 0 && x < BallSize-1 {
-								b.BounceNS()
-							}
-							if y > 0 && y < BallSize-1 {
-								b.BounceEW()
-							}
-							bounced = true
+				overlap := ballSprite[y] & mask
+				if overlap != 0 {
+					w4.Blit(&overlap, 0, _y, 6, 1, w4.BLIT_1BPP)
+					if !bouncedEW {
+						if overlap&0b11000000 > 0 {
+							b.BounceRight()
+							bouncedEW = true
 						}
-						bricks[i].Lives--
+						if overlap&0b00001100 > 0 {
+							b.BounceLeft()
+							bouncedEW = true
+						}
 					}
+					if !bouncedNS {
+						bouncedNS = true
+						if y < BallSize/2 {
+							b.BounceDown()
+						} else {
+							b.BounceUp()
+						}
+					}
+					bricks[i].Lives--
 				}
 			}
 		}
 	}
+	b.normalizeSpeed()
+}
+
+func (b *Ball) normalizeSpeed() {
+	abs := math.Sqrt(b.Speed.X*b.Speed.X + b.Speed.Y*b.Speed.Y)
+	if b.Speed.Y > abs {
+		abs = b.Speed.Y
+	}
+	b.Speed.X /= abs / b.Speed.Value
+	b.Speed.Y /= abs / b.Speed.Value
 }
 
 func (b *Ball) BounceEW() {
@@ -89,4 +140,24 @@ func (b *Ball) BounceEW() {
 }
 func (b *Ball) BounceNS() {
 	b.Speed.Y = -b.Speed.Y
+}
+func (b *Ball) BounceLeft() {
+	if b.Speed.X > 0 {
+		b.Speed.X = -b.Speed.X
+	}
+}
+func (b *Ball) BounceRight() {
+	if b.Speed.X < 0 {
+		b.Speed.X = -b.Speed.X
+	}
+}
+func (b *Ball) BounceUp() {
+	if b.Speed.Y > 0 {
+		b.Speed.Y = -b.Speed.Y
+	}
+}
+func (b *Ball) BounceDown() {
+	if b.Speed.Y < 0 {
+		b.Speed.Y = -b.Speed.Y
+	}
 }
